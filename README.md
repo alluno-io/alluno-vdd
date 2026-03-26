@@ -89,6 +89,10 @@ AllunoVddCloseDevice(device);
 | `0x888` | Ping | Reset watchdog countdown |
 | `0x8FF` | GetVersion | Protocol version |
 
+## Rust Bindings
+
+See [alluno-vdd-sys](https://github.com/alluno-io/alluno-vdd-sys) for Rust bindings.
+
 ## License
 
 MIT
