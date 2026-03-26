@@ -21,6 +21,9 @@
     <ClInclude Include="..\include\alluno-vdd-ioctl.h" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="version.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <Inf Include="AllunoVDD.inf">
       <SpecifyDriverVerDirectiveVersion>true</SpecifyDriverVerDirectiveVersion>
       <TimeStamp>1.0.0.1</TimeStamp>
