@@ -49,6 +49,9 @@ DWORD MaxVirtualMonitorCount = 10;
 IDDCX_BITS_PER_COMPONENT SDRBITS = IDDCX_BITS_PER_COMPONENT_8;
 IDDCX_BITS_PER_COMPONENT HDRBITS = IDDCX_BITS_PER_COMPONENT_10;
 
+// Per-connector HDR capability (set before monitor arrival, read by QueryTargetInfo)
+static UINT connectorBpc[16] = {};
+
 #pragma region SampleMonitors
 
 static const UINT mode_scale_factors[] = {
@@ -126,17 +129,9 @@ static inline void FillSignalInfo(DISPLAYCONFIG_VIDEO_SIGNAL_INFO& Mode, DWORD W
 
 	DWORD Denominator = 1000;
 
-	if (isHDRSupported) {
-		if (VSync < 1000) {
-			VSync *= 1000;
-		}
-	} else {
-		if (VSync % 1000 > 500) {
-			VSync = (VSync / 1000) + 1;
-		} else {
-			VSync /= 1000;
-		}
-		Denominator = 1;
+	// Always use millihertz representation for exact refresh rates
+	if (VSync < 1000) {
+		VSync *= 1000;
 	}
 
 	Mode.vSyncFreq.Numerator = VSync;
@@ -160,13 +155,13 @@ static IDDCX_MONITOR_MODE CreateIddCxMonitorMode(DWORD Width, DWORD Height, DWOR
 	return Mode;
 }
 
-static IDDCX_MONITOR_MODE2 CreateIddCxMonitorMode2(DWORD Width, DWORD Height, DWORD VSync, IDDCX_MONITOR_MODE_ORIGIN Origin = IDDCX_MONITOR_MODE_ORIGIN_DRIVER)
+static IDDCX_MONITOR_MODE2 CreateIddCxMonitorMode2(DWORD Width, DWORD Height, DWORD VSync, IDDCX_MONITOR_MODE_ORIGIN Origin = IDDCX_MONITOR_MODE_ORIGIN_DRIVER, UINT bpc = 0)
 {
 	IDDCX_MONITOR_MODE2 Mode = {};
 
 	Mode.Size = sizeof(Mode);
 	Mode.Origin = Origin;
-	Mode.BitsPerComponent.Rgb = SDRBITS | HDRBITS;
+	Mode.BitsPerComponent.Rgb = (bpc >= 10) ? (SDRBITS | HDRBITS) : SDRBITS;
 	FillSignalInfo(Mode.MonitorVideoSignalInfo, Width, Height, VSync, true);
 
 	return Mode;
@@ -182,12 +177,12 @@ static IDDCX_TARGET_MODE CreateIddCxTargetMode(DWORD Width, DWORD Height, DWORD 
 	return Mode;
 }
 
-static IDDCX_TARGET_MODE2 CreateIddCxTargetMode2(DWORD Width, DWORD Height, DWORD VSync)
+static IDDCX_TARGET_MODE2 CreateIddCxTargetMode2(DWORD Width, DWORD Height, DWORD VSync, UINT bpc = 0)
 {
 	IDDCX_TARGET_MODE2 Mode = {};
 
 	Mode.Size = sizeof(Mode);
-	Mode.BitsPerComponent.Rgb = SDRBITS | HDRBITS;
+	Mode.BitsPerComponent.Rgb = (bpc >= 10) ? (SDRBITS | HDRBITS) : SDRBITS;
 	FillSignalInfo(Mode.TargetVideoSignalInfo.targetVideoSignalInfo, Width, Height, VSync, false);
 
 	return Mode;
@@ -338,6 +333,9 @@ void DisconnectAllMonitors() {
 	for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
 		auto* ctx = *it;
 		// Remove the monitor
+		if (ctx->connectorId < 16) {
+			connectorBpc[ctx->connectorId] = 0;
+		}
 		freeConnectorSlots.push(ctx->connectorId);
 		IddCxMonitorDeparture(ctx->GetMonitor());
 	}
@@ -811,7 +809,7 @@ void IndirectDeviceContext::SetRenderAdapter(const LUID& AdapterLuid) {
 	IddCxAdapterSetRenderAdapter(m_Adapter, &inArgs);
 }
 
-NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode) {
+NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode, UINT bitsPerChannel) {
 	// ==============================
 	// TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDIDs
 	// provided here are purely for demonstration.
@@ -854,7 +852,13 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 		pMonitorContext->connectorId = MonitorInfo.ConnectorIndex;
 		pMonitorContext->pEdidData = edidData;
 		pMonitorContext->preferredMode = preferredMode;
+		pMonitorContext->bitsPerChannel = bitsPerChannel ? bitsPerChannel : 8;
 		pMonitorContext->m_Adapter = m_Adapter;
+
+		// Set per-connector HDR capability before arrival (used by QueryTargetInfo)
+		if (MonitorInfo.ConnectorIndex < 16) {
+			connectorBpc[MonitorInfo.ConnectorIndex] = pMonitorContext->bitsPerChannel;
+		}
 
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
@@ -1135,9 +1139,11 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 	pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
 
 	VirtualMonitorMode* pPreferredMode = nullptr;
+	UINT monitorBpc = 8;
 
 	for (auto &it: monitorCtxList) {
 		if (memcmp(pInArgs->MonitorDescription.pData, it->pEdidData, sizeof(edid_base)) == 0) {
+			monitorBpc = it->bitsPerChannel;
 			if (it->preferredMode.Width) {
 				// We're adding 10 different modes, 1 original and 4 scaled x doubled refresh rate
 				pOutArgs->MonitorModeBufferOutputCount += std::size(mode_scale_factors) * 2;
@@ -1173,7 +1179,8 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 				s_DefaultModes[ModeIndex].Width,
 				s_DefaultModes[ModeIndex].Height,
 				vsyncTarget,
-				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
+				monitorBpc
 			);
 		}
 
@@ -1191,14 +1198,16 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 					_width,
 					_height,
 					vsync,
-					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
+					monitorBpc
 				);
 
 				pInArgs->pMonitorModes[std::size(s_DefaultModes) + idx * 2 + 1] = CreateIddCxMonitorMode2(
 					_width,
 					_height,
 					vsync,
-					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
+					monitorBpc
 				);
 			}
 
@@ -1317,11 +1326,10 @@ NTSTATUS AllunoVDDMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
 _Use_decl_annotations_
 NTSTATUS AllunoVDDMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES2* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
-	UNREFERENCED_PARAMETER(MonitorObject);
-
 	pOutArgs->TargetModeBufferOutputCount = (UINT) std::size(s_DefaultModes);
 
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
+	UINT monitorBpc = pMonitorContextWrapper->pContext->bitsPerChannel;
 
 	if (pMonitorContextWrapper->pContext->preferredMode.Width) {
 		pOutArgs->TargetModeBufferOutputCount += std::size(mode_scale_factors) * 2;
@@ -1352,7 +1360,8 @@ NTSTATUS AllunoVDDMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN
 			TargetModes.push_back(CreateIddCxTargetMode2(
 				s_DefaultModes[i].Width,
 				s_DefaultModes[i].Height,
-				vsyncTarget
+				vsyncTarget,
+				monitorBpc
 			));
 		}
 
@@ -1364,13 +1373,15 @@ NTSTATUS AllunoVDDMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN
 			TargetModes.push_back(CreateIddCxTargetMode2(
 				_width,
 				_height,
-				vsync
+				vsync,
+				monitorBpc
 			));
 
 			TargetModes.push_back(CreateIddCxTargetMode2(
 				_width,
 				_height,
-				vsync * 2
+				vsync * 2,
+				monitorBpc
 			));
 		}
 
@@ -1416,9 +1427,16 @@ NTSTATUS AllunoVDDAdapterQueryTargetInfo(
 )
 {
 	UNREFERENCED_PARAMETER(AdapterObject);
-	UNREFERENCED_PARAMETER(pInArgs);
-	pOutArgs->TargetCaps = IDDCX_TARGET_CAPS_HIGH_COLOR_SPACE | IDDCX_TARGET_CAPS_WIDE_COLOR_SPACE;
-	pOutArgs->DitheringSupport.Rgb = HDRBITS;
+
+	UINT bpc = 8;
+	if (pInArgs->ConnectorIndex < 16) {
+		bpc = connectorBpc[pInArgs->ConnectorIndex];
+	}
+
+	if (bpc >= 10) {
+		pOutArgs->TargetCaps = IDDCX_TARGET_CAPS_HIGH_COLOR_SPACE | IDDCX_TARGET_CAPS_WIDE_COLOR_SPACE;
+		pOutArgs->DitheringSupport.Rgb = HDRBITS;
+	}
 
 	return STATUS_SUCCESS;
 }
@@ -1526,14 +1544,13 @@ VOID AllunoVDDIoDeviceControl(
 				preferredMode.VSync = (DWORD)((UINT64)params->VsyncNumerator * 1000 / params->VsyncDenominator);
 			}
 
-			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, preferredMode);
+			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, preferredMode, params->BitsPerChannel);
 
 			if (!NT_SUCCESS(Status)) {
 				break;
 			}
 
 			// Store extended fields on the context
-			pMonitorContext->bitsPerChannel = params->BitsPerChannel ? params->BitsPerChannel : 8;
 			pMonitorContext->hdrMode = params->HdrMode;
 			pMonitorContext->vsyncNumerator = params->VsyncNumerator;
 			pMonitorContext->vsyncDenominator = params->VsyncDenominator;
@@ -1568,6 +1585,9 @@ VOID AllunoVDDIoDeviceControl(
 			auto* ctx = *it;
 			if (ctx->monitorGuid == params->MonitorGuid) {
 				// Remove the monitor
+				if (ctx->connectorId < 16) {
+					connectorBpc[ctx->connectorId] = 0;
+				}
 				freeConnectorSlots.push(ctx->connectorId);
 				IddCxMonitorDeparture(ctx->GetMonitor());
 				monitorCtxList.erase(it);
@@ -1678,9 +1698,8 @@ VOID AllunoVDDIoDeviceControl(
 					edidData = generate_edid(guid.Data1, "", "Alluno Display");
 				}
 
-				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode);
+				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode, bpc);
 				if (NT_SUCCESS(Status)) {
-					pNewCtx->bitsPerChannel = bpc;
 					pNewCtx->hdrMode = hdr;
 					pNewCtx->vsyncNumerator = vN;
 					pNewCtx->vsyncDenominator = vD;
@@ -1828,9 +1847,8 @@ VOID AllunoVDDIoDeviceControl(
 					edidData = generate_edid(guid.Data1, "", "Alluno Display");
 				}
 
-				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode);
+				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode, bpc);
 				if (NT_SUCCESS(Status)) {
-					pNewCtx->bitsPerChannel = bpc;
 					pNewCtx->hdrMode = hdr;
 					pNewCtx->vsyncNumerator = vN;
 					pNewCtx->vsyncDenominator = vD;

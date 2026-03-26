@@ -127,7 +127,7 @@ namespace Microsoft
 			void SetRenderAdapter(const LUID& AdapterLuid);
 
 			void _TestCreateMonitor();
-			NTSTATUS CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode);
+			NTSTATUS CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode, UINT bitsPerChannel = 8);
 
 		protected:
 			WDFDEVICE m_WdfDevice;
