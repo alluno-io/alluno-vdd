@@ -1,0 +1,38 @@
+# Build output
+build/
+src/x64/
+src/Debug/
+src/Release/
+src/ARM64/
+*.obj
+*.exp
+*.lib
+*.pdb
+*.tlog/
+*.recipe
+*.FileListAbsolute.txt
+*.log
+*.suo
+*.user
+.vs/
+
+# Package output
+dist/
+
+# Reference sources (not part of project)
+reference/
+
+# Signing artifacts (keep cert in dist only)
+signing.pfx
+*.pfx
+
+# NuGet
+packages/
+
+# Test build artifacts
+test/*.exe
+test/*.obj
+test/*.rsp
+
+# Temp
+*.tmp

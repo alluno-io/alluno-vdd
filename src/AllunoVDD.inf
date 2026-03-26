@@ -1,0 +1,76 @@
+;
+; AllunoVDD.inf
+;
+
+[Version]
+PnpLockdown=1
+Signature="$Windows NT$"
+ClassGUID = {4D36E968-E325-11CE-BFC1-08002BE10318}
+Class = Display
+ClassVer = 2.0
+Provider=%ManufacturerName%
+CatalogFile=allunovdd.cat
+DriverVer= ; TODO: set DriverVer in stampinf property pages
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$
+
+[Standard.NT$ARCH$]
+%DeviceName%=AllunoVDD_Install, Root\Alluno\VDD
+%DeviceName%=AllunoVDD_Install, AllunoVDD
+
+[SourceDisksFiles]
+AllunoVDD.dll=1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+; =================== UMDF Device ==================================
+
+[AllunoVDD_Install.NT]
+CopyFiles=UMDriverCopy
+
+[AllunoVDD_Install.NT.hw]
+AddReg = MyDevice_HardwareDeviceSettings
+
+[MyDevice_HardwareDeviceSettings]
+HKR,, "UpperFilters",  %REG_MULTI_SZ%, "IndirectKmd"
+HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "AllunoVDDGroup"
+HKR,, "Security",, "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)"
+
+[AllunoVDD_Install.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+
+[AllunoVDD_Install.NT.Wdf]
+UmdfService=AllunoVDD, AllunoVDD_Install
+UmdfServiceOrder=AllunoVDD
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+
+[AllunoVDD_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary=%12%\UMDF\AllunoVDD.dll
+UmdfExtensions = IddCx0102
+
+[WUDFRD_ServiceInstall]
+DisplayName = %WudfRdDisplayName%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\WUDFRd.sys
+
+[DestinationDirs]
+UMDriverCopy=12,UMDF ; copy to drivers\umdf
+
+[UMDriverCopy]
+AllunoVDD.dll
+
+; =================== Generic ==================================
+
+[Strings]
+ManufacturerName="Alluno"
+DiskName = "Alluno VDD Installation Disk"
+DeviceName="Alluno Virtual Display Adapter"
+WudfRdDisplayName="Windows Driver Foundation - User-mode Driver Framework Reflector"
+
+REG_MULTI_SZ  = 0x00010000
+REG_SZ        = 0x00000000
