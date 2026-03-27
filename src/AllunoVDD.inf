@@ -10,7 +10,7 @@ Class = Display
 ClassVer = 2.0
 Provider=%ManufacturerName%
 CatalogFile=allunovdd.cat
-DriverVer= ; TODO: set DriverVer in stampinf property pages
+DriverVer= ; Set by StampInf during build
 
 [Manufacturer]
 %ManufacturerName%=Standard,NT$ARCH$

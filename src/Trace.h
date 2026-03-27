@@ -58,6 +58,5 @@ Environment:
 // Driver specific #defines
 //
 #if UMDF_VERSION_MAJOR == 2 && UMDF_VERSION_MINOR == 0
-    // TODO: Update the name of the tracing provider
-    #define MYDRIVER_TRACING_ID      L"Microsoft\\UMDF2.0\\IddSampleDriver V1.0"
+    #define MYDRIVER_TRACING_ID      L"Alluno\\UMDF2.0\\AllunoVDD V1.0"
 #endif

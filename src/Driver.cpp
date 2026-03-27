@@ -1,19 +1,8 @@
-/*++
-
-Copyright (c) Microsoft Corporation
-
-Abstract:
-
-	This module contains a sample implementation of an indirect display driver. See the included README.md file and the
-	various TODO blocks throughout this file and all accompanying files for information on building a production driver.
-
-	MSDN documentation on indirect displays can be found at https://msdn.microsoft.com/en-us/library/windows/hardware/mt761968(v=vs.85).aspx.
-
-Environment:
-
-	User Mode, UMDF
-
---*/
+/*
+ * Alluno VDD - IddCx virtual display driver for remote desktop streaming.
+ * Based on Microsoft IDD sample, extended with dynamic display management,
+ * HDR support, and IOCTL control API.
+ */
 
 #include "Driver.h"
 #include "edid.h"
@@ -52,7 +41,7 @@ IDDCX_BITS_PER_COMPONENT HDRBITS = IDDCX_BITS_PER_COMPONENT_10;
 // Per-connector HDR capability (set before monitor arrival, read by QueryTargetInfo)
 static UINT connectorBpc[16] = {};
 
-#pragma region SampleMonitors
+#pragma region DefaultModes
 
 static const UINT mode_scale_factors[] = {
 	// Put 100 at the first for convenience and fool proof
@@ -66,7 +55,6 @@ static const UINT mode_scale_factors[] = {
 // Default modes reported for edid-less monitors. The second mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 30000},
-	// {800, 600, 59940}, // Use fractional VSync API for 59.94Hz
 	{800, 600, 60000},
 	{800, 600, 72000},
 	{800, 600, 90000},
@@ -74,14 +62,12 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 144000},
 	{800, 600, 240000},
 	{1280, 720, 30000},
-	// {1280, 720, 59940},
 	{1280, 720, 60000},
 	{1280, 720, 72000},
 	{1280, 720, 90000},
 	{1280, 720, 120000},
 	{1280, 720, 144000},
 	{1366, 768, 30000},
-	// {1366, 768, 59940},
 	{1366, 768, 60000},
 	{1366, 768, 72000},
 	{1366, 768, 90000},
@@ -89,7 +75,6 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1366, 768, 144000},
 	{1366, 768, 240000},
 	{1920, 1080, 30000},
-	// {1920, 1080, 59940},
 	{1920, 1080, 60000},
 	{1920, 1080, 72000},
 	{1920, 1080, 90000},
@@ -97,7 +82,6 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1920, 1080, 144000},
 	{1920, 1080, 240000},
 	{2560, 1440, 30000},
-	// {2560, 1440, 59940},
 	{2560, 1440, 60000},
 	{2560, 1440, 72000},
 	{2560, 1440, 90000},
@@ -105,7 +89,6 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{2560, 1440, 144000},
 	{2560, 1440, 240000},
 	{3840, 2160, 30000},
-	// {3840, 2160, 59940},
 	{3840, 2160, 60000},
 	{3840, 2160, 72000},
 	{3840, 2160, 90000},
@@ -432,7 +415,7 @@ NTSTATUS AllunoVDDDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	UNREFERENCED_PARAMETER(Driver);
 
-	// Register for power callbacks - in this sample only power-on is needed
+	// Register for power callbacks - only power-on is needed
 	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
 	PnpPowerCallbacks.EvtDeviceD0Entry = AllunoVDDDeviceD0Entry;
 	WdfDeviceInitSetPnpPowerEventCallbacks(pDeviceInit, &PnpPowerCallbacks);
@@ -683,43 +666,14 @@ void SwapChainProcessor::RunCore()
 		}
 		else if (SUCCEEDED(hr))
 		{
-			// We have new frame to process, the surface has a reference on it that the driver has to release
 			AcquiredBuffer.Attach(pSurface);
-
-			// ==============================
-			// TODO: Process the frame here
-			//
-			// This is the most performance-critical section of code in an IddCx driver. It's important that whatever
-			// is done with the acquired surface be finished as quickly as possible. This operation could be:
-			//  * a GPU copy to another buffer surface for later processing (such as a staging surface for mapping to CPU memory)
-			//  * a GPU encode operation
-			//  * a GPU VPBlt to another surface
-			//  * a GPU custom compute shader encode operation
-			// ==============================
-
-			// We have finished processing this frame hence we release the reference on it.
-			// If the driver forgets to release the reference to the surface, it will be leaked which results in the
-			// surfaces being left around after swapchain is destroyed.
-			// NOTE: Although in this sample we release reference to the surface here; the driver still
-			// owns the Buffer.MetaData.pSurface surface until IddCxSwapChainReleaseAndAcquireBuffer returns
-			// S_OK and gives us a new frame, a driver may want to use the surface in future to re-encode the desktop
-			// for better quality if there is no new frame for a while
 			AcquiredBuffer.Reset();
 
-			// Indicate to OS that we have finished inital processing of the frame, it is a hint that
-			// OS could start preparing another frame
 			hr = IddCxSwapChainFinishedProcessingFrame(m_hSwapChain);
 			if (FAILED(hr))
 			{
 				break;
 			}
-
-			// ==============================
-			// TODO: Report frame statistics once the asynchronous encode/send work is completed
-			//
-			// Drivers should report information about sub-frame timings, like encode time, send time, etc.
-			// ==============================
-			// IddCxSwapChainReportFrameStatistics(m_hSwapChain, ...);
 		}
 		else
 		{
@@ -748,13 +702,6 @@ IndirectDeviceContext::~IndirectDeviceContext()
 
 void IndirectDeviceContext::InitAdapter()
 {
-	// ==============================
-	// TODO: Update the below diagnostic information in accordance with the target hardware. The strings and version
-	// numbers are used for telemetry and may be displayed to the user in some situations.
-	//
-	// This is also where static per-adapter capabilities are determined.
-	// ==============================
-
 	IDDCX_ADAPTER_CAPS AdapterCaps = {};
 	AdapterCaps.Size = sizeof(AdapterCaps);
 
@@ -810,18 +757,9 @@ void IndirectDeviceContext::SetRenderAdapter(const LUID& AdapterLuid) {
 }
 
 NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode, UINT bitsPerChannel) {
-	// ==============================
-	// TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDIDs
-	// provided here are purely for demonstration.
-	// Monitor manufacturers are required to correctly fill in physical monitor attributes in order to allow the OS
-	// to optimize settings like viewing distance and scale factor. Manufacturers should also use a unique serial
-	// number every single device to ensure the OS can tell the monitors apart.
-	// ==============================
-
 	WDF_OBJECT_ATTRIBUTES Attr;
 	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, IndirectMonitorContextWrapper);
 
-	// In the sample driver, we report a monitor right away but a real driver would do this when a monitor connection event occurs
 	IDDCX_MONITOR_INFO MonitorInfo = {};
 	MonitorInfo.Size = sizeof(MonitorInfo);
 	MonitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI;
@@ -916,7 +854,7 @@ void IndirectMonitorContext::AssignSwapChain(const IDDCX_MONITOR& MonitorObject,
 
 		//create an event to get notified new cursor data
 		HANDLE mouseEvent = CreateEventA(
-			nullptr, //TODO set proper SECURITY_ATTRIBUTES
+			nullptr,
 			false,
 			false,
 			"arbitraryMouseEventName"
@@ -931,10 +869,10 @@ void IndirectMonitorContext::AssignSwapChain(const IDDCX_MONITOR& MonitorObject,
 		//set up cursor capabilities
 		IDDCX_CURSOR_CAPS cursorInfo = {};
 		cursorInfo.Size = sizeof(cursorInfo);
-		cursorInfo.ColorXorCursorSupport = IDDCX_XOR_CURSOR_SUPPORT_FULL; //TODO play around with XOR cursors
+		cursorInfo.ColorXorCursorSupport = IDDCX_XOR_CURSOR_SUPPORT_FULL;
 		cursorInfo.AlphaCursorSupport = true;
-		cursorInfo.MaxX = 64; //TODO figure out correct maximum value
-		cursorInfo.MaxY = 64; //TODO figure out correct maximum value
+		cursorInfo.MaxX = 64;
+		cursorInfo.MaxY = 64;
 
 		//prepare IddCxMonitorSetupHardwareCursor arguments
 		IDARG_IN_SETUP_HWCURSOR hwCursor = {};
@@ -1014,14 +952,6 @@ NTSTATUS AllunoVDDAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN
 	UNREFERENCED_PARAMETER(AdapterObject);
 	UNREFERENCED_PARAMETER(pInArgs);
 
-	// For the sample, do nothing when modes are picked - the swap-chain is taken care of by IddCx
-
-	// ==============================
-	// TODO: In a real driver, this function would be used to reconfigure the device to commit the new modes. Loop
-	// through pInArgs->pPaths and look for IDDCX_PATH_FLAGS_ACTIVE. Any path not active is inactive (e.g. the monitor
-	// should be turned off).
-	// ==============================
-
 	return STATUS_SUCCESS;
 }
 
@@ -1040,11 +970,6 @@ NTSTATUS AllunoVDDAdapterCommitModes2(
 _Use_decl_annotations_
 NTSTATUS AllunoVDDParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
 {
-	// ==============================
-	// TODO: In a real driver, this function would be called to generate monitor modes for an EDID by parsing it. In
-	// this sample driver, we hard-code the EDID, so this function can generate known modes.
-	// ==============================
-
 	if (pInArgs->MonitorDescription.DataSize != sizeof(edid_base))
 		return STATUS_INVALID_PARAMETER;
 
@@ -1223,13 +1148,6 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 _Use_decl_annotations_
 NTSTATUS AllunoVDDMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
-	// ==============================
-	// TODO: In a real driver, this function would be called to generate monitor modes for a monitor with no EDID.
-	// Drivers should report modes that are guaranteed to be supported by the transport protocol and by nearly all
-	// monitors (such 640x480, 800x600, or 1024x768). If the driver has access to monitor modes from a descriptor other
-	// than an EDID, those modes would also be reported here.
-	// ==============================
-
 	UNREFERENCED_PARAMETER(MonitorObject);
 
 	pOutArgs->DefaultMonitorModeBufferOutputCount = std::size(s_DefaultModes);

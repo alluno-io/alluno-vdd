@@ -113,9 +113,6 @@ namespace Microsoft
 			std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
 		} ;
 
-		/// <summary>
-		/// Provides a sample implementation of an indirect display driver.
-		/// </summary>
 		class IndirectDeviceContext
 		{
 		public:
