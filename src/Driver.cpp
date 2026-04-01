@@ -1854,9 +1854,10 @@ VOID AllunoVDDIoDeviceControl(
 			break;
 		}
 
-		output->Major = ALLUNO_VDD_PROTOCOL_MAJOR;
-		output->Minor = ALLUNO_VDD_PROTOCOL_MINOR;
-		output->Patch = ALLUNO_VDD_PROTOCOL_PATCH;
+		output->Major = ALLUNO_VDD_VERSION_MAJOR;
+		output->Minor = ALLUNO_VDD_VERSION_MINOR;
+		output->Patch = ALLUNO_VDD_VERSION_PATCH;
+		output->Build = ALLUNO_VDD_VERSION_BUILD;
 		bytesReturned = sizeof(ALLUNO_VDD_VERSION);
 		Status = STATUS_SUCCESS;
 		break;

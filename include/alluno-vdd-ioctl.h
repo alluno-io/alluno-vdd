@@ -41,9 +41,11 @@ namespace ALLUNO_VDD
 #define ALLUNO_VDD_HDR_HDR10        1
 #define ALLUNO_VDD_HDR_HDR10_PLUS   2
 
-#define ALLUNO_VDD_PROTOCOL_MAJOR   2
-#define ALLUNO_VDD_PROTOCOL_MINOR   0
-#define ALLUNO_VDD_PROTOCOL_PATCH   0
+// Driver version — must match vcxproj TimeStamp
+#define ALLUNO_VDD_VERSION_MAJOR    1
+#define ALLUNO_VDD_VERSION_MINOR    0
+#define ALLUNO_VDD_VERSION_PATCH    0
+#define ALLUNO_VDD_VERSION_BUILD    1
 
 // Hardware ID
 static const char* ALLUNO_VDD_HARDWARE_ID = "root\\alluno\\vdd";
@@ -110,6 +112,7 @@ typedef struct _ALLUNO_VDD_VERSION {
 	UINT Major;
 	UINT Minor;
 	UINT Patch;
+	UINT Build;
 } ALLUNO_VDD_VERSION;
 
 typedef struct _ALLUNO_VDD_HDR_METADATA {
