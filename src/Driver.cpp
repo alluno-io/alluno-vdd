@@ -798,6 +798,11 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 			connectorBpc[MonitorInfo.ConnectorIndex] = pMonitorContext->bitsPerChannel;
 		}
 
+		// Add to list AFTER all fields are set, BEFORE arrival.
+		// ParseMonitorDescription/QueryTargetModes iterate this list
+		// to find the preferredMode — it must be set before IddCxMonitorArrival.
+		monitorCtxList.emplace_back(pMonitorContext);
+
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
 		Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
@@ -816,8 +821,8 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor) :
 	m_Monitor(Monitor)
 {
-	// Store context for later use
-	monitorCtxList.emplace_back(this);
+	// NOTE: Do NOT add to monitorCtxList here — preferredMode and other
+	// fields aren't set yet. CreateMonitor adds to the list after setup.
 }
 
 IndirectMonitorContext::~IndirectMonitorContext()

@@ -26,7 +26,7 @@
   <ItemGroup>
     <Inf Include="AllunoVDD.inf">
       <SpecifyDriverVerDirectiveVersion>true</SpecifyDriverVerDirectiveVersion>
-      <TimeStamp>1.0.0.1</TimeStamp>
+      <TimeStamp>1.0.1.0</TimeStamp>
       <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
       <DateStamp>*</DateStamp>
     </Inf>
