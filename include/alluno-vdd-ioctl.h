@@ -45,7 +45,7 @@ namespace ALLUNO_VDD
 #define ALLUNO_VDD_VERSION_MAJOR    1
 #define ALLUNO_VDD_VERSION_MINOR    0
 #define ALLUNO_VDD_VERSION_PATCH    1
-#define ALLUNO_VDD_VERSION_BUILD    0
+#define ALLUNO_VDD_VERSION_BUILD    1
 
 // Hardware ID
 static const char* ALLUNO_VDD_HARDWARE_ID = "root\\alluno\\vdd";

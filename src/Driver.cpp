@@ -978,19 +978,23 @@ NTSTATUS AllunoVDDParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 	if (pInArgs->MonitorDescription.DataSize != sizeof(edid_base))
 		return STATUS_INVALID_PARAMETER;
 
-	pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
-
 	VirtualMonitorMode* pPreferredMode = nullptr;
 
 	for (auto &it: monitorCtxList) {
 		if (memcmp(pInArgs->MonitorDescription.pData, it->pEdidData, sizeof(edid_base)) == 0) {
 			if (it->preferredMode.Width) {
-				// We're adding 10 different modes, 1 original and 4 scaled x doubled refresh rate
-				pOutArgs->MonitorModeBufferOutputCount += std::size(mode_scale_factors) * 2;
 				pPreferredMode = &it->preferredMode;
 			}
 			break;
 		}
+	}
+
+	if (pPreferredMode) {
+		// Preferred mode set: only report preferred + scaled variants (no defaults).
+		// This prevents Windows from picking a stale saved resolution.
+		pOutArgs->MonitorModeBufferOutputCount = std::size(mode_scale_factors) * 2;
+	} else {
+		pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
 	}
 
 	if (pInArgs->MonitorModeBufferInputCount < pOutArgs->MonitorModeBufferOutputCount)
@@ -1000,30 +1004,7 @@ NTSTATUS AllunoVDDParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 	}
 	else
 	{
-		float vsyncMultiplier = 1;
-
-		if (pPreferredMode && pPreferredMode->VSync) {
-			float fVSync = (float)pPreferredMode->VSync / 1000;
-			vsyncMultiplier = fVSync / round(fVSync);
-			if (vsyncMultiplier > 1) {
-				vsyncMultiplier = 1;
-			}
-		}
-
-		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
-			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
-			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
-				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
-			}
-			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
-				s_DefaultModes[ModeIndex].Width,
-				s_DefaultModes[ModeIndex].Height,
-				vsyncTarget,
-				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
-			);
-		}
-
-		if (pPreferredMode && pPreferredMode->Width) {
+		if (pPreferredMode) {
 			auto width = pPreferredMode->Width;
 			auto height = pPreferredMode->Height;
 			auto vsync = pPreferredMode->VSync;
@@ -1033,23 +1014,36 @@ NTSTATUS AllunoVDDParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 				auto _width = width * scalc_factor / 100;
 				auto _height = height * scalc_factor / 100;
 
-				pInArgs->pMonitorModes[std::size(s_DefaultModes) + idx * 2] = CreateIddCxMonitorMode(
+				pInArgs->pMonitorModes[idx * 2] = CreateIddCxMonitorMode(
 					_width,
 					_height,
 					vsync,
 					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
 				);
 
-				pInArgs->pMonitorModes[std::size(s_DefaultModes) + idx * 2 + 1] = CreateIddCxMonitorMode(
+				pInArgs->pMonitorModes[idx * 2 + 1] = CreateIddCxMonitorMode(
 					_width,
 					_height,
 					vsync * 2,
 					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
 				);
 			}
-
-			pOutArgs->PreferredMonitorModeIdx = std::size(s_DefaultModes);
+			pOutArgs->PreferredMonitorModeIdx = 0;
 		} else {
+			float vsyncMultiplier = 1;
+
+			for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
+				auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
+				if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
+					vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+				}
+				pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
+					s_DefaultModes[ModeIndex].Width,
+					s_DefaultModes[ModeIndex].Height,
+					vsyncTarget,
+					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+				);
+			}
 			pOutArgs->PreferredMonitorModeIdx = 1;
 		}
 
@@ -1066,8 +1060,6 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 	if (pInArgs->MonitorDescription.DataSize != sizeof(edid_base))
 		return STATUS_INVALID_PARAMETER;
 
-	pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
-
 	VirtualMonitorMode* pPreferredMode = nullptr;
 	UINT monitorBpc = 8;
 
@@ -1075,46 +1067,25 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 		if (memcmp(pInArgs->MonitorDescription.pData, it->pEdidData, sizeof(edid_base)) == 0) {
 			monitorBpc = it->bitsPerChannel;
 			if (it->preferredMode.Width) {
-				// We're adding 10 different modes, 1 original and 4 scaled x doubled refresh rate
-				pOutArgs->MonitorModeBufferOutputCount += std::size(mode_scale_factors) * 2;
 				pPreferredMode = &it->preferredMode;
 			}
 			break;
 		}
 	}
 
+	if (pPreferredMode) {
+		pOutArgs->MonitorModeBufferOutputCount = std::size(mode_scale_factors) * 2;
+	} else {
+		pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
+	}
+
 	if (pInArgs->MonitorModeBufferInputCount < pOutArgs->MonitorModeBufferOutputCount)
 	{
-		// Return success if there was no buffer, since the caller was only asking for a count of modes
 		return (pInArgs->MonitorModeBufferInputCount > 0) ? STATUS_BUFFER_TOO_SMALL : STATUS_SUCCESS;
 	}
 	else
 	{
-		float vsyncMultiplier = 1;
-
-		if (pPreferredMode && pPreferredMode->VSync) {
-			float fVSync = (float)pPreferredMode->VSync / 1000;
-			vsyncMultiplier = fVSync / round(fVSync);
-			if (vsyncMultiplier > 1) {
-				vsyncMultiplier = 1;
-			}
-		}
-
-		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
-			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
-			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
-				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
-			}
-			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode2(
-				s_DefaultModes[ModeIndex].Width,
-				s_DefaultModes[ModeIndex].Height,
-				vsyncTarget,
-				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
-				monitorBpc
-			);
-		}
-
-		if (pPreferredMode && pPreferredMode->Width) {
+		if (pPreferredMode) {
 			auto width = pPreferredMode->Width;
 			auto height = pPreferredMode->Height;
 			auto vsync = pPreferredMode->VSync;
@@ -1124,7 +1095,7 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 				auto _width = width * scalc_factor / 100;
 				auto _height = height * scalc_factor / 100;
 
-				pInArgs->pMonitorModes[std::size(s_DefaultModes) + idx * 2] = CreateIddCxMonitorMode2(
+				pInArgs->pMonitorModes[idx * 2] = CreateIddCxMonitorMode2(
 					_width,
 					_height,
 					vsync,
@@ -1132,17 +1103,26 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 					monitorBpc
 				);
 
-				pInArgs->pMonitorModes[std::size(s_DefaultModes) + idx * 2 + 1] = CreateIddCxMonitorMode2(
+				pInArgs->pMonitorModes[idx * 2 + 1] = CreateIddCxMonitorMode2(
 					_width,
 					_height,
-					vsync,
+					vsync * 2,
 					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
 					monitorBpc
 				);
 			}
 
-			pOutArgs->PreferredMonitorModeIdx = std::size(s_DefaultModes);
+			pOutArgs->PreferredMonitorModeIdx = 0;
 		} else {
+			for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
+				pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode2(
+					s_DefaultModes[ModeIndex].Width,
+					s_DefaultModes[ModeIndex].Height,
+					s_DefaultModes[ModeIndex].VSync,
+					IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR,
+					monitorBpc
+				);
+			}
 			pOutArgs->PreferredMonitorModeIdx = 1;
 		}
 
@@ -1153,10 +1133,16 @@ NTSTATUS AllunoVDDParseMonitorDescription2(
 _Use_decl_annotations_
 NTSTATUS AllunoVDDMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
-	UNREFERENCED_PARAMETER(MonitorObject);
+	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
+	bool hasPreferred = pMonitorContextWrapper->pContext->preferredMode.Width > 0;
 
-	pOutArgs->DefaultMonitorModeBufferOutputCount = std::size(s_DefaultModes);
-	pOutArgs->PreferredMonitorModeIdx = 1;
+	if (hasPreferred) {
+		pOutArgs->DefaultMonitorModeBufferOutputCount = std::size(mode_scale_factors) * 2;
+		pOutArgs->PreferredMonitorModeIdx = 0;
+	} else {
+		pOutArgs->DefaultMonitorModeBufferOutputCount = std::size(s_DefaultModes);
+		pOutArgs->PreferredMonitorModeIdx = 1;
+	}
 
 	if (pInArgs->DefaultMonitorModeBufferInputCount == 0) {
 		return STATUS_SUCCESS;
@@ -1164,13 +1150,34 @@ NTSTATUS AllunoVDDMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDAR
 		return STATUS_BUFFER_TOO_SMALL;
 	}
 
-	for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
-		pInArgs->pDefaultMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
-			s_DefaultModes[ModeIndex].Width,
-			s_DefaultModes[ModeIndex].Height,
-			s_DefaultModes[ModeIndex].VSync,
-			IDDCX_MONITOR_MODE_ORIGIN_DRIVER
-		);
+	if (hasPreferred) {
+		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
+		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
+		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
+
+		for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
+			auto scalc_factor = mode_scale_factors[idx];
+			auto _width = width * scalc_factor / 100;
+			auto _height = height * scalc_factor / 100;
+
+			pInArgs->pDefaultMonitorModes[idx * 2] = CreateIddCxMonitorMode(
+				_width, _height, vsync,
+				IDDCX_MONITOR_MODE_ORIGIN_DRIVER
+			);
+			pInArgs->pDefaultMonitorModes[idx * 2 + 1] = CreateIddCxMonitorMode(
+				_width, _height, vsync * 2,
+				IDDCX_MONITOR_MODE_ORIGIN_DRIVER
+			);
+		}
+	} else {
+		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
+			pInArgs->pDefaultMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
+				s_DefaultModes[ModeIndex].Width,
+				s_DefaultModes[ModeIndex].Height,
+				s_DefaultModes[ModeIndex].VSync,
+				IDDCX_MONITOR_MODE_ORIGIN_DRIVER
+			);
+		}
 	}
 
 	return STATUS_SUCCESS;
@@ -1179,63 +1186,39 @@ NTSTATUS AllunoVDDMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDAR
 _Use_decl_annotations_
 NTSTATUS AllunoVDDMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
-	UNREFERENCED_PARAMETER(MonitorObject);
-
-	pOutArgs->TargetModeBufferOutputCount = (UINT) std::size(s_DefaultModes);
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
-	if (pMonitorContextWrapper->pContext->preferredMode.Width) {
-		pOutArgs->TargetModeBufferOutputCount += std::size(mode_scale_factors) * 2;
+	bool hasPreferred = pMonitorContextWrapper->pContext->preferredMode.Width > 0;
+
+	if (hasPreferred) {
+		pOutArgs->TargetModeBufferOutputCount = std::size(mode_scale_factors) * 2;
+	} else {
+		pOutArgs->TargetModeBufferOutputCount = (UINT) std::size(s_DefaultModes);
 	}
 
 	if (pInArgs->TargetModeBufferInputCount >= pOutArgs->TargetModeBufferOutputCount) {
 		vector<IDDCX_TARGET_MODE> TargetModes;
 
-		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
-		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
-		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
+		if (hasPreferred) {
+			auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
+			auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
+			auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
 
-		float vsyncMultiplier = 1;
+			for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
+				auto scalc_factor = mode_scale_factors[idx];
+				auto _width = width * scalc_factor / 100;
+				auto _height = height * scalc_factor / 100;
 
-		{
-			float fVSync = (float)vsync / 1000;
-			vsyncMultiplier = fVSync / round(fVSync);
-			if (vsyncMultiplier > 1) {
-				vsyncMultiplier = 1;
+				TargetModes.push_back(CreateIddCxTargetMode(_width, _height, vsync));
+				TargetModes.push_back(CreateIddCxTargetMode(_width, _height, vsync * 2));
 			}
-		}
-
-		// Create a set of modes supported for frame processing and scan-out. These are typically not based on the
-		// monitor's descriptor and instead are based on the static processing capability of the device. The OS will
-		// report the available set of modes for a given output as the intersection of monitor modes with target modes.
-
-		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
-			auto vsyncTarget = s_DefaultModes[i].VSync;
-			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
-				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+		} else {
+			for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
+				TargetModes.push_back(CreateIddCxTargetMode(
+					s_DefaultModes[i].Width,
+					s_DefaultModes[i].Height,
+					s_DefaultModes[i].VSync
+				));
 			}
-			TargetModes.push_back(CreateIddCxTargetMode(
-				s_DefaultModes[i].Width,
-				s_DefaultModes[i].Height,
-				vsyncTarget
-			));
-		}
-
-		for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
-			auto scalc_factor = mode_scale_factors[idx];
-			auto _width = width * scalc_factor / 100;
-			auto _height = height * scalc_factor / 100;
-
-			TargetModes.push_back(CreateIddCxTargetMode(
-				_width,
-				_height,
-				vsync
-			));
-
-			TargetModes.push_back(CreateIddCxTargetMode(
-				_width,
-				_height,
-				vsync * 2
-			));
 		}
 
 		copy(TargetModes.begin(), TargetModes.end(), pInArgs->pTargetModes);
@@ -1249,63 +1232,41 @@ NTSTATUS AllunoVDDMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
 _Use_decl_annotations_
 NTSTATUS AllunoVDDMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES2* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
-	pOutArgs->TargetModeBufferOutputCount = (UINT) std::size(s_DefaultModes);
-
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
 	UINT monitorBpc = pMonitorContextWrapper->pContext->bitsPerChannel;
+	bool hasPreferred = pMonitorContextWrapper->pContext->preferredMode.Width > 0;
 
-	if (pMonitorContextWrapper->pContext->preferredMode.Width) {
-		pOutArgs->TargetModeBufferOutputCount += std::size(mode_scale_factors) * 2;
+	if (hasPreferred) {
+		pOutArgs->TargetModeBufferOutputCount = std::size(mode_scale_factors) * 2;
+	} else {
+		pOutArgs->TargetModeBufferOutputCount = (UINT) std::size(s_DefaultModes);
 	}
 
 	if (pInArgs->TargetModeBufferInputCount >= pOutArgs->TargetModeBufferOutputCount) {
 		vector<IDDCX_TARGET_MODE2> TargetModes;
 
-		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
-		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
-		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
+		if (hasPreferred) {
+			auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
+			auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
+			auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
 
-		float vsyncMultiplier = 1;
+			for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
+				auto scalc_factor = mode_scale_factors[idx];
+				auto _width = width * scalc_factor / 100;
+				auto _height = height * scalc_factor / 100;
 
-		{
-			float fVSync = (float)vsync / 1000;
-			vsyncMultiplier = fVSync / round(fVSync);
-			if (vsyncMultiplier > 1) {
-				vsyncMultiplier = 1;
+				TargetModes.push_back(CreateIddCxTargetMode2(_width, _height, vsync, monitorBpc));
+				TargetModes.push_back(CreateIddCxTargetMode2(_width, _height, vsync * 2, monitorBpc));
 			}
-		}
-
-		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
-			auto vsyncTarget = s_DefaultModes[i].VSync;
-			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
-				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+		} else {
+			for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
+				TargetModes.push_back(CreateIddCxTargetMode2(
+					s_DefaultModes[i].Width,
+					s_DefaultModes[i].Height,
+					s_DefaultModes[i].VSync,
+					monitorBpc
+				));
 			}
-			TargetModes.push_back(CreateIddCxTargetMode2(
-				s_DefaultModes[i].Width,
-				s_DefaultModes[i].Height,
-				vsyncTarget,
-				monitorBpc
-			));
-		}
-
-		for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
-			auto scalc_factor = mode_scale_factors[idx];
-			auto _width = width * scalc_factor / 100;
-			auto _height = height * scalc_factor / 100;
-
-			TargetModes.push_back(CreateIddCxTargetMode2(
-				_width,
-				_height,
-				vsync,
-				monitorBpc
-			));
-
-			TargetModes.push_back(CreateIddCxTargetMode2(
-				_width,
-				_height,
-				vsync * 2,
-				monitorBpc
-			));
 		}
 
 		copy(TargetModes.begin(), TargetModes.end(), pInArgs->pTargetModes);
@@ -1618,7 +1579,7 @@ VOID AllunoVDDIoDeviceControl(
 						memcpy(edidData, customData, customSize);
 					}
 				} else {
-					edidData = generate_edid(guid.Data1, "", "Alluno Display");
+					edidData = generate_edid(guid.Data1, "", "Alluno");
 				}
 
 				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode, bpc);
@@ -1767,7 +1728,7 @@ VOID AllunoVDDIoDeviceControl(
 						memcpy(edidData, customData, customSize);
 					}
 				} else {
-					edidData = generate_edid(guid.Data1, "", "Alluno Display");
+					edidData = generate_edid(guid.Data1, "", "Alluno");
 				}
 
 				Status = pDeviceContextWrapper->pContext->CreateMonitor(pNewCtx, edidData, guid, mode, bpc);
