@@ -1351,6 +1351,26 @@ NTSTATUS AllunoVDDMonitorSetGammaRamp(
 
 #pragma endregion
 
+static const UINT MaxModeSide = 16384;
+static const UINT64 MaxModeMilliHz = 1000 * 1000;
+
+static UINT64 RequestedMilliHz(UINT RefreshRate, UINT VsyncNumerator, UINT VsyncDenominator, UINT64 Current)
+{
+	if (VsyncNumerator > 0 && VsyncDenominator > 0) {
+		return (UINT64)VsyncNumerator * 1000 / VsyncDenominator;
+	}
+	if (RefreshRate > 0) {
+		return RefreshRate < 1000 ? (UINT64)RefreshRate * 1000 : RefreshRate;
+	}
+	return Current;
+}
+
+static bool ModeIsSupported(UINT Width, UINT Height, UINT64 MilliHz)
+{
+	return Width > 0 && Height > 0 && Width <= MaxModeSide && Height <= MaxModeSide
+		&& MilliHz > 0 && MilliHz <= MaxModeMilliHz;
+}
+
 VOID AllunoVDDIoDeviceControl(
 	_In_ WDFDEVICE Device,
 	_In_ WDFREQUEST Request,
@@ -1369,6 +1389,8 @@ VOID AllunoVDDIoDeviceControl(
 
 	switch (IoControlCode) {
 	case IOCTL_ALLUNO_VDD_ADD_DISPLAY: {
+		std::lock_guard<std::mutex> lg(monitorListOp);
+
 		if (freeConnectorSlots.empty()) {
 			Status = STATUS_TOO_MANY_NODES;
 			break;
@@ -1410,9 +1432,9 @@ VOID AllunoVDDIoDeviceControl(
 		}
 
 		// Validate and add the virtual display
-		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
-			std::lock_guard<std::mutex> lg(monitorListOp);
-
+		if (params->RefreshRate > 0
+			&& ModeIsSupported(params->Width, params->Height,
+				RequestedMilliHz(params->RefreshRate, params->VsyncNumerator, params->VsyncDenominator, 0))) {
 			auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(Device);
 
 			IndirectMonitorContext* pMonitorContext;
@@ -1530,6 +1552,14 @@ VOID AllunoVDDIoDeviceControl(
 		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
 			auto* ctx = *it;
 			if (ctx->monitorGuid == params->MonitorGuid) {
+				if (!ModeIsSupported(
+						params->Width > 0 ? params->Width : ctx->preferredMode.Width,
+						params->Height > 0 ? params->Height : ctx->preferredMode.Height,
+						RequestedMilliHz(params->RefreshRate, params->VsyncNumerator, params->VsyncDenominator, ctx->preferredMode.VSync))) {
+					Status = STATUS_INVALID_PARAMETER;
+					break;
+				}
+
 				// Update fields (skip 0 values = no change)
 				if (params->Width > 0) ctx->preferredMode.Width = params->Width;
 				if (params->Height > 0) ctx->preferredMode.Height = params->Height;
