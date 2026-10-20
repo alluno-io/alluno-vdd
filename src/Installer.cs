@@ -69,6 +69,8 @@ namespace AllunoVDDInstaller
             if (File.Exists(certPath))
             {
                 Console.WriteLine("  Installing certificate...");
+                RunCmd("certutil", "-delstore Root \"Alluno\"");
+                RunCmd("certutil", "-delstore TrustedPublisher \"Alluno\"");
                 RunCmd("certutil", string.Format("-addstore -f Root \"{0}\"", certPath));
                 RunCmd("certutil", string.Format("-addstore -f TrustedPublisher \"{0}\"", certPath));
             }
