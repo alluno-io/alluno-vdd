@@ -53,8 +53,8 @@ pub const ALLUNO_VDD_HDR_HDR10_PLUS: u32 = 2;
 
 pub const ALLUNO_VDD_VERSION_MAJOR: u32 = 1;
 pub const ALLUNO_VDD_VERSION_MINOR: u32 = 0;
-pub const ALLUNO_VDD_VERSION_PATCH: u32 = 0;
-pub const ALLUNO_VDD_VERSION_BUILD: u32 = 1;
+pub const ALLUNO_VDD_VERSION_PATCH: u32 = 1;
+pub const ALLUNO_VDD_VERSION_BUILD: u32 = 2;
 
 // IOCTL codes: CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, function, METHOD_BUFFERED=0, FILE_ANY_ACCESS=0)
 #[allow(clippy::identity_op)]
@@ -62,18 +62,18 @@ const fn ctl_code(function: u32) -> u32 {
     (0x22 << 16) | (0 << 14) | (function << 2) | 0 // FILE_DEVICE_UNKNOWN, FILE_ANY_ACCESS, METHOD_BUFFERED
 }
 
-const IOCTL_ALLUNO_VDD_ADD_DISPLAY: u32 = ctl_code(0x800);
-const IOCTL_ALLUNO_VDD_REMOVE_DISPLAY: u32 = ctl_code(0x801);
-const IOCTL_ALLUNO_VDD_SET_RENDER_ADAPTER: u32 = ctl_code(0x802);
-const IOCTL_ALLUNO_VDD_GET_WATCHDOG: u32 = ctl_code(0x803);
-const IOCTL_ALLUNO_VDD_UPDATE_MODE: u32 = ctl_code(0x804);
-const IOCTL_ALLUNO_VDD_LIST_DISPLAYS: u32 = ctl_code(0x805);
-const IOCTL_ALLUNO_VDD_REMOVE_ALL: u32 = ctl_code(0x806);
-const IOCTL_ALLUNO_VDD_SET_WATCHDOG: u32 = ctl_code(0x807);
-const IOCTL_ALLUNO_VDD_SET_HDR: u32 = ctl_code(0x808);
-const IOCTL_ALLUNO_VDD_SET_CUSTOM_EDID: u32 = ctl_code(0x809);
-const IOCTL_ALLUNO_VDD_PING: u32 = ctl_code(0x888);
-const IOCTL_ALLUNO_VDD_GET_VERSION: u32 = ctl_code(0x8FF);
+pub const IOCTL_ALLUNO_VDD_ADD_DISPLAY: u32 = ctl_code(0x800);
+pub const IOCTL_ALLUNO_VDD_REMOVE_DISPLAY: u32 = ctl_code(0x801);
+pub const IOCTL_ALLUNO_VDD_SET_RENDER_ADAPTER: u32 = ctl_code(0x802);
+pub const IOCTL_ALLUNO_VDD_GET_WATCHDOG: u32 = ctl_code(0x803);
+pub const IOCTL_ALLUNO_VDD_UPDATE_MODE: u32 = ctl_code(0x804);
+pub const IOCTL_ALLUNO_VDD_LIST_DISPLAYS: u32 = ctl_code(0x805);
+pub const IOCTL_ALLUNO_VDD_REMOVE_ALL: u32 = ctl_code(0x806);
+pub const IOCTL_ALLUNO_VDD_SET_WATCHDOG: u32 = ctl_code(0x807);
+pub const IOCTL_ALLUNO_VDD_SET_HDR: u32 = ctl_code(0x808);
+pub const IOCTL_ALLUNO_VDD_SET_CUSTOM_EDID: u32 = ctl_code(0x809);
+pub const IOCTL_ALLUNO_VDD_PING: u32 = ctl_code(0x888);
+pub const IOCTL_ALLUNO_VDD_GET_VERSION: u32 = ctl_code(0x8FF);
 
 // ============================================================================
 // Wire structs (must match alluno-vdd-ioctl.h, packed)
@@ -81,7 +81,7 @@ const IOCTL_ALLUNO_VDD_GET_VERSION: u32 = ctl_code(0x8FF);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawAddParams {
+pub struct RawAddParams {
     width: u32,
     height: u32,
     refresh_rate: u32,
@@ -96,20 +96,20 @@ struct RawAddParams {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawAddResult {
+pub struct RawAddResult {
     adapter_luid: i64,
     target_id: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawRemoveParams {
+pub struct RawRemoveParams {
     monitor_guid: GUID,
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawUpdateModeParams {
+pub struct RawUpdateModeParams {
     monitor_guid: GUID,
     width: u32,
     height: u32,
@@ -122,26 +122,26 @@ struct RawUpdateModeParams {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawSetAdapterParams {
+pub struct RawSetAdapterParams {
     adapter_luid: i64,
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawWatchdogParams {
+pub struct RawWatchdogParams {
     timeout_ms: u32,
     countdown_ms: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawSetWatchdogParams {
+pub struct RawSetWatchdogParams {
     timeout_ms: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawVersion {
+pub struct RawVersion {
     major: u32,
     minor: u32,
     patch: u32,
@@ -150,7 +150,7 @@ struct RawVersion {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawHdrMetadata {
+pub struct RawHdrMetadata {
     red_primary_x: u32,
     red_primary_y: u32,
     green_primary_x: u32,
@@ -167,7 +167,7 @@ struct RawHdrMetadata {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawDisplayInfo {
+pub struct RawDisplayInfo {
     monitor_guid: GUID,
     width: u32,
     height: u32,
@@ -184,14 +184,14 @@ struct RawDisplayInfo {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawListResult {
+pub struct RawListResult {
     count: u32,
     displays: [RawDisplayInfo; ALLUNO_VDD_MAX_DISPLAYS],
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawSetHdrParams {
+pub struct RawSetHdrParams {
     monitor_guid: GUID,
     hdr_mode: u32,
     bits_per_channel: u32,
@@ -201,7 +201,7 @@ struct RawSetHdrParams {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct RawSetCustomEdidParams {
+pub struct RawSetCustomEdidParams {
     monitor_guid: GUID,
     edid_size: u32,
     edid_data: [u8; ALLUNO_VDD_EDID_MAX_SIZE],
