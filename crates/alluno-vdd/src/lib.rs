@@ -2,7 +2,7 @@
 //!
 //! # Example
 //! ```no_run
-//! use alluno_vdd_sys::*;
+//! use alluno_vdd::*;
 //!
 //! let device = AllunoVdd::new().expect("driver not installed");
 //! let version = device.get_version().unwrap();

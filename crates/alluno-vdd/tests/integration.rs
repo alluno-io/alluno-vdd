@@ -1,11 +1,11 @@
-//! Integration tests for alluno-vdd-sys
+//! Integration tests for alluno-vdd
 //!
 //! Tests skip gracefully if the AllunoVDD driver is not installed.
 //! Run with: cargo test -- --nocapture
 //!
 //! Tests are serialized via a global mutex since they share one driver instance.
 
-use alluno_vdd_sys::*;
+use alluno_vdd::*;
 use std::sync::Mutex;
 
 static DRIVER_LOCK: Mutex<()> = Mutex::new(());

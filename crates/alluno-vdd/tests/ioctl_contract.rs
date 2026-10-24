@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 
-use alluno_vdd_sys::*;
+use alluno_vdd::*;
 use windows::core::GUID;
 
 const HEADER: &str = include_str!("../../../include/alluno-vdd-ioctl.h");

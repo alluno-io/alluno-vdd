@@ -5,7 +5,7 @@
 //! Press number keys to add/remove displays, or 'q' to quit.
 //! All displays are cleaned up on exit (quit, Ctrl+C, or terminal close).
 
-use alluno_vdd_sys::*;
+use alluno_vdd::*;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 

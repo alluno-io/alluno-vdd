@@ -1,4 +1,4 @@
-# alluno-vdd-sys
+# alluno-vdd
 
 Rust bindings for the Alluno Virtual Display Driver (AllunoVDD).
 
@@ -30,11 +30,11 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-alluno-vdd-sys = "1.1.2"
+alluno-vdd = { git = "https://github.com/alluno-io/alluno-vdd" }
 ```
 
 ```rust
-use alluno_vdd_sys::*;
+use alluno_vdd::*;
 
 let device = AllunoVdd::new().expect("driver not installed");
 let version = device.get_version().unwrap();

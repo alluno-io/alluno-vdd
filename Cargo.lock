@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "alluno-vdd-sys"
+name = "alluno-vdd"
 version = "1.2.0"
 dependencies = [
  "windows",
