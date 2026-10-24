@@ -91,7 +91,7 @@ AllunoVddCloseDevice(device);
 
 ## Rust Bindings
 
-See [alluno-vdd-sys](https://github.com/alluno-io/alluno-vdd-sys) for Rust bindings.
+The Rust bindings live in [`crates/alluno-vdd-sys`](crates/alluno-vdd-sys), beside the header they mirror.
 
 ## License
 

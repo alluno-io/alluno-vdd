@@ -1,5 +1,6 @@
 # Build output
 build/
+target/
 src/x64/
 src/Debug/
 src/Release/
