@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.bat eol=crlf
+*.cmd eol=crlf
+*.sln eol=crlf
+*.vcxproj eol=crlf
+*.filters eol=crlf
+*.props eol=crlf
+*.targets eol=crlf
+*.inf eol=crlf
+*.inx eol=crlf
+*.rc eol=crlf
+*.def eol=crlf
