@@ -1,10 +1,71 @@
 name: Continuous Integration
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      level: ${{ steps.decide.outputs.level }}
+      why: ${{ steps.decide.outputs.why }}
+      tree: ${{ steps.decide.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          sparse-checkout: .github
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCS: '\.md$|^LICENSE$'
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          skip() { printf 'run=false\nlevel=%s\nwhy=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"; exit 0; }
+          marker='\[skip[ -]checks\]'
+          base=
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.title, .labels[].name' || echo "$TITLE")
+              grep -qiE "$marker" <<< "$pr" && skip warning "the pull request title asks for it"
+              grep -qx skip-checks <<< "$pr" && skip warning "the pull request has the skip-checks label"
+              git log -1 --format=%B "$HEAD_SHA" | grep -qiE "$marker" && skip warning "the latest commit asks for it"
+              git rev-parse -q --verify 'HEAD^2' > /dev/null && base='HEAD^1'
+              ;;
+            push)
+              grep -qiE "$marker" <<< "$MESSAGE" && skip warning "the commit message asks for it"
+              git fetch -q --depth=1 origin "$BEFORE" 2> /dev/null && base=$BEFORE
+              ;;
+          esac
+          if [ -n "$DOCS" ] && [ -n "$base" ] && files=$(git diff --name-only --no-renames "$base" HEAD) && [ -n "$files" ] && ! grep -qvE "$DOCS" <<< "$files"; then
+            skip notice "only documentation changed"
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            own='[.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id)] | length'
+            passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=checks-passed-$tree" --jq "$own" || true)
+            [ "${passed:-0}" -gt 0 ] && skip notice "its pull request passed every check on this exact code"
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
   check:
     name: Check (windows-latest)
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,3 +76,35 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  checks:
+    name: Checks
+    needs: [gate, check]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        env:
+          GATE: ${{ needs.gate.result }}
+          RUN: ${{ needs.gate.outputs.run }}
+          LEVEL: ${{ needs.gate.outputs.level }}
+          WHY: ${{ needs.gate.outputs.why }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          [ "$GATE" = success ] || { echo "::error::The gate failed, so nothing was checked"; exit 1; }
+          if [ "$RUN" = false ]; then
+            echo "::$LEVEL title=Checks skipped::Skipped because $WHY."
+            echo "Checks skipped because $WHY." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "::error::Not every check passed: $RESULTS"; exit 1; }
+          done
+          echo "Every check passed." >> "$GITHUB_STEP_SUMMARY"
+          echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > passed.txt
+      - if: github.event_name == 'pull_request' && needs.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: checks-passed-${{ needs.gate.outputs.tree }}
+          path: passed.txt
+          retention-days: 30
